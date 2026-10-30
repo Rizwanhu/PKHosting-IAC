@@ -1,0 +1,6 @@
+---
+- name: Restart pkapp
+  ansible.builtin.systemd:
+    name: pkapp
+    state: restarted
+    daemon_reload: true

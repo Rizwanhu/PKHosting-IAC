@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (git-ignored). Do NOT put the API token here;
+# export TF_VAR_hcloud_token in your shell instead.
+name                = "pkhosting"
+server_type         = "cx22"
+location            = "nbg1"
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+allowed_ssh_cidrs   = ["0.0.0.0/0", "::/0"]  # tighten to "YOUR.IP/32" if possible

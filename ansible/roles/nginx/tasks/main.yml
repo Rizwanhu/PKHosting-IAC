@@ -1,0 +1,152 @@
+---
+- name: Install nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+
+- name: Install certbot (Let's Encrypt mode only)
+  ansible.builtin.apt:
+    name: certbot
+    state: present
+  when: tls_mode == 'letsencrypt'
+
+- name: Remove default site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: ACME webroot
+  ansible.builtin.file:
+    path: /var/www/letsencrypt
+    state: directory
+    mode: "0755"
+
+- name: Global nginx hardening (hide version)
+  ansible.builtin.copy:
+    dest: /etc/nginx/conf.d/00-hardening.conf
+    mode: "0644"
+    content: |
+      server_tokens off;
+  notify: Reload nginx
+
+# ===== Self-signed path =====
+- name: TLS directory
+  ansible.builtin.file:
+    path: /etc/ssl/pkhosting
+    state: directory
+    mode: "0755"
+  when: tls_mode == 'selfsigned'
+
+- name: Generate self-signed certificate (CN/SAN = server IP)
+  ansible.builtin.command: >
+    openssl req -x509 -nodes -newkey rsa:2048 -days 365
+    -keyout /etc/ssl/pkhosting/selfsigned.key
+    -out /etc/ssl/pkhosting/selfsigned.crt
+    -subj "/CN={{ ansible_host }}/O=PKHosting"
+    -addext "subjectAltName=IP:{{ ansible_host }}"
+  args:
+    creates: /etc/ssl/pkhosting/selfsigned.crt
+  when: tls_mode == 'selfsigned'
+
+- name: Set cert paths (self-signed)
+  ansible.builtin.set_fact:
+    cert_path: /etc/ssl/pkhosting/selfsigned.crt
+    key_path: /etc/ssl/pkhosting/selfsigned.key
+    server_names: "_"
+  when: tls_mode == 'selfsigned'
+
+# ===== Let's Encrypt path =====
+- name: Assert email is set for Let's Encrypt
+  ansible.builtin.assert:
+    that: le_email != ''
+    fail_msg: "Set PK_LE_EMAIL when PK_DOMAIN is set"
+  when: tls_mode == 'letsencrypt'
+
+- name: Set cert paths (Let's Encrypt)
+  ansible.builtin.set_fact:
+    cert_path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+    key_path: "/etc/letsencrypt/live/{{ domain }}/privkey.pem"
+    server_names: "{{ domain }} www.{{ domain }}"
+  when: tls_mode == 'letsencrypt'
+
+- name: HTTP-only vhost (needed to answer the ACME challenge)
+  ansible.builtin.template:
+    src: vhost.conf.j2
+    dest: /etc/nginx/sites-available/pkhosting
+    mode: "0644"
+  vars:
+    vhost_stage: http
+  when: tls_mode == 'letsencrypt'
+  notify: Reload nginx
+
+- name: Enable vhost
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/pkhosting
+    dest: /etc/nginx/sites-enabled/pkhosting
+    state: link
+  when: tls_mode == 'letsencrypt'
+  notify: Reload nginx
+
+- name: Start nginx
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true
+  when: tls_mode == 'letsencrypt'
+
+- name: Apply pending nginx reload before requesting the certificate
+  ansible.builtin.meta: flush_handlers
+
+- name: Obtain certificate with certbot (webroot)
+  ansible.builtin.command: >
+    certbot certonly --webroot -w /var/www/letsencrypt
+    -d {{ domain }} -d www.{{ domain }}
+    --non-interactive --agree-tos -m {{ le_email }}
+    {{ '--staging' if le_staging else '' }}
+  args:
+    creates: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+  when: tls_mode == 'letsencrypt'
+
+- name: Renewal deploy hook (reload nginx after renew)
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      systemctl reload nginx
+  when: tls_mode == 'letsencrypt'
+
+- name: Ensure certbot renewal timer is on
+  ansible.builtin.systemd:
+    name: certbot.timer
+    enabled: true
+    state: started
+  when: tls_mode == 'letsencrypt'
+
+# ===== Final HTTPS vhost (both modes) =====
+- name: Full HTTPS vhost with reverse proxy
+  ansible.builtin.template:
+    src: vhost.conf.j2
+    dest: /etc/nginx/sites-available/pkhosting
+    mode: "0644"
+  vars:
+    vhost_stage: full
+  notify: Reload nginx
+
+- name: Enable vhost (final)
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/pkhosting
+    dest: /etc/nginx/sites-enabled/pkhosting
+    state: link
+  notify: Reload nginx
+
+- name: Test nginx config
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Enable and start nginx
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true

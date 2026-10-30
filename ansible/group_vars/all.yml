@@ -1,0 +1,13 @@
+---
+admin_user: deploy
+timezone: Asia/Karachi
+
+# TLS mode is derived from the environment: domain set -> Let's Encrypt, else self-signed.
+domain: "{{ lookup('env', 'PK_DOMAIN') | default('', true) }}"
+le_email: "{{ lookup('env', 'PK_LE_EMAIL') | default('', true) }}"
+le_staging: "{{ (lookup('env', 'PK_LE_STAGING') | default('1', true)) == '1' }}"
+tls_mode: "{{ 'letsencrypt' if domain != '' else 'selfsigned' }}"
+
+app_user: pkapp
+app_dir: /opt/pkhosting-app
+app_port: 8000

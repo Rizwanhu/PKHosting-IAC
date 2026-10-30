@@ -1,0 +1,8 @@
+---
+- name: Provision PKHosting web server
+  hosts: web
+  become: true
+  roles:
+    - base
+    - app
+    - nginx

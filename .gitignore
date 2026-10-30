@@ -1,0 +1,17 @@
+# Secrets and state - NEVER commit
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+*.auto.tfvars
+.env
+
+*.pem
+*.key
+id_*
+# Generated
+ansible/inventory.ini
+docs/timings-*.md
+*.retry
+__pycache__/
+.last_build_timings

@@ -1,0 +1,17 @@
+[Unit]
+Description=PKHosting sample app (gunicorn)
+After=network.target
+
+[Service]
+User={{ app_user }}
+Group={{ app_user }}
+WorkingDirectory={{ app_dir }}
+ExecStart=/usr/bin/gunicorn --workers 2 --bind 127.0.0.1:{{ app_port }} app:app
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
